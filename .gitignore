@@ -1,0 +1,16 @@
+# 构建产物
+bin/
+obj/
+dist/
+*.user
+*.suo
+
+# 本地运行/测试产物
+.screenshots/
+.trae-html-share-packages/
+logs/
+*.log
+
+# 真实单据与人员隐私材料（含签名、扫描件），不入库
+材料/
+app/LedgerReview.Web/Assets/signature-book.pdf

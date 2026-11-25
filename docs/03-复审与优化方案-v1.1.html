@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>台账审查工具 · 复审与优化方案 v1.1</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#161a20;--muted:#5c6675;--line:#e2e6ed;
+    --brand:#b45309;--brand-soft:#fff7ed;--blue:#0b57d0;--blue-soft:#eef4ff;
+    --ok:#0f766e;--ok-soft:#eefbf7;--red:#b3261e;--red-soft:#fdf1f0;--code:#f3f5f8;}
+  *{box-sizing:border-box} html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.78;
+    font-family:"Segoe UI","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;font-size:15px}
+  .layout{display:grid;grid-template-columns:272px minmax(0,1fr)}
+  aside{position:sticky;top:0;height:100vh;overflow:auto;background:#fff;border-right:1px solid var(--line);padding:26px 18px}
+  .brand{display:flex;gap:10px;align-items:center}
+  .mark{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:700;background:linear-gradient(135deg,#d97706,#b45309)}
+  .brand-name{font-weight:700;font-size:15px}.brand-sub{font-size:11.5px;color:var(--muted)}
+  nav{margin-top:22px;font-size:13px}
+  nav .g{color:var(--muted);font-size:11px;letter-spacing:1.4px;margin:16px 0 6px}
+  nav a{display:block;color:#38414f;text-decoration:none;padding:4.5px 8px;border-radius:6px}
+  nav a:hover{background:var(--brand-soft);color:var(--brand)}
+  main{padding:46px 56px 110px;max-width:1040px}
+  .head{border-bottom:1px solid var(--line);padding-bottom:24px}
+  .eyebrow{font-size:12px;letter-spacing:2px;color:var(--brand);font-weight:700}
+  h1{font-size:31px;line-height:1.35;margin:10px 0 6px;letter-spacing:-.4px}
+  .sub{color:var(--muted);margin:0}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .chip{font-size:12px;padding:4px 10px;border-radius:99px;background:#eef0f4;border:1px solid var(--line);color:#48505d}
+  .chip.r{background:var(--red-soft);color:var(--red);border-color:#f3cfcb}
+  .chip.g{background:var(--ok-soft);color:var(--ok);border-color:#c9efe4}
+  h2{font-size:22px;margin:52px 0 12px}
+  h2 .n{color:var(--brand);margin-right:10px}
+  h3{font-size:16.5px;margin:26px 0 8px}
+  h4{font-size:14px;margin:18px 0 6px;color:#2c3440}
+  p{margin:9px 0} ul,ol{margin:8px 0;padding-left:22px} li{margin:5px 0}
+  code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:13px;font-family:Consolas,monospace}
+  table{width:100%;border-collapse:collapse;margin:14px 0 18px;font-size:13.5px;background:#fff}
+  th,td{border:1px solid var(--line);padding:9px 11px;vertical-align:top;text-align:left}
+  th{background:#f1f4f8;font-weight:650}
+  tr:nth-child(even) td{background:#fbfcfd}
+  .callout{border-left:4px solid var(--brand);background:#fff;padding:13px 18px;border-radius:0 10px 10px 0;margin:16px 0;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .callout.red{border-left-color:var(--red);background:var(--red-soft)}
+  .callout.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .callout.blue{border-left-color:var(--blue);background:var(--blue-soft)}
+  .callout .label{font-size:11.5px;letter-spacing:1.3px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px}
+  .tag{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:5px;background:#eef0f4;color:#4a5260;margin-right:4px}
+  .tag.p0{background:#fdeceb;color:#a52a20}.tag.p1{background:#fff4e5;color:#9a5b06}.tag.p2{background:#eef2f7;color:#4b5563}
+  .tag.fix{background:#eaf3ff;color:#0b57d0}
+  .small{font-size:12.5px;color:var(--muted)}
+  .tbd{color:var(--brand);font-weight:600}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .box h4{margin-top:0}
+  .figure{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin:16px 0}
+  .figure figcaption{font-size:12.5px;color:var(--muted);text-align:center;margin-top:6px}
+  @media(max-width:920px){.layout{display:block}aside{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}main{padding:26px 18px 70px}.grid2{grid-template-columns:1fr}}
+  @media print{body{background:#fff;font-size:11.5pt}aside{display:none}.layout{display:block}main{max-width:none;padding:0}h2{page-break-after:avoid}table,.callout,.box{page-break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="brand">
+    <div class="mark">审</div>
+    <div><div class="brand-name">复审与优化方案</div><div class="brand-sub">v1.1 · 2026-11-25</div></div>
+  </div>
+  <nav>
+    <div class="g">实施</div>
+    <a href="#s0">0 v1.1 实施结果</a>
+    <div class="g">复审</div>
+    <a href="#s1">1 一页纸结论</a>
+    <a href="#s2">2 问题复现与根因</a>
+    <a href="#s3">3 其他复审发现</a>
+    <div class="g">技术调研</div>
+    <a href="#s4">4 手写 OCR 开源调研</a>
+    <a href="#s5">5 推荐技术路线</a>
+    <div class="g">优化方案</div>
+    <a href="#s6">6 P0：表格与勾选</a>
+    <a href="#s7">7 P0：字段 OCR</a>
+    <a href="#s8">8 P0：签名口径</a>
+    <a href="#s9">9 P0：归档层级</a>
+    <a href="#s10">10 P1/P2 路线</a>
+    <a href="#s11">11 验收指标</a>
+    <a href="#s12">12 需要你提供</a>
+    <a href="#s13">13 风险与决策</a>
+    <a href="#s14">14 代码位置索引</a>
+  </nav>
+</aside>
+
+<main>
+  <header class="head">
+    <div class="eyebrow">Review &amp; Optimization Plan</div>
+    <h1>台账审查工具 · 复审与优化方案</h1>
+    <p class="sub">针对第 27 项误判、手写识别错误、N/A 与勾选错误、签名误识别、站点/设备分类问题，给出根因、开源选型与分阶段改造方案。</p>
+    <div class="meta">
+      <span class="chip r">复审结论：可用但未达生产级</span>
+      <span class="chip">基线 v1.0</span>
+      <span class="chip">2026-11-25</span>
+      <span class="chip g">含 GitHub 选型</span>
+    </div>
+  </header>
+
+  <section id="s0">
+    <h2><span class="n">0</span>v1.1 实施结果（2026-11-25）</h2>
+    <p>本轮已按方案完成 P0 全部内容，并按“使用 GitHub 星数最多的 OCR 项目”要求把手写 OCR 换成 <b>PaddleOCR PP-OCRv5</b>（RapidOcrNet / ONNX 本地推理，Apache-2.0），用真实 43 页样本回归，并对自包含发布版做启动验收。</p>
+    <table>
+      <tr><th style="width:34%">验收项</th><th style="width:22%">结果</th><th>说明</th></tr>
+      <tr><td>OCR 引擎</td><td>PP-OCRv5 中文</td><td>det + 方向分类 + rec 全部本地推理，不依赖 Windows 语言包；Windows OCR 仅作 fallback</td></tr>
+      <tr><td>43 页样本：严重问题</td><td>0 条</td><td>接入 PP-OCRv5 并修正 F.1 签名定位后，A1/A3/B1/C1 严重误报全部清零</td></tr>
+      <tr><td>43 页样本：一般提示</td><td>10 条</td><td>9 条“手写日期/第 N 次读不出，请人工核对” + 1 条 F.1 与保养单日期差 1 天</td></tr>
+      <tr><td>勾选空白（A1）</td><td>0 项</td><td>双高行不再连带错位；勾选压线时向右放宽再判一次</td></tr>
+      <tr><td>F.1 漏签（A3）</td><td>0 条</td><td>按“（签字）”标签行定位，并在标签上/下多窗口取墨迹；43 页 19 张 F.1 全部正确判定</td></tr>
+      <tr><td>客户签名</td><td>0 个归属候选</td><td>客户/使用单位只校“已签/未签”，不做归属比对</td></tr>
+      <tr><td>设备编号 / 站点</td><td>人工输入优先</td><td>导入时填写的站点、设备编号优先，手写 OCR 结果不再覆盖；C1 只比 WBS 三段式</td></tr>
+      <tr><td>同一册多 PDF</td><td>页图不再互相覆盖</td><td>页图/缩略图/证据图文件名带源文件标识，43 页分别对应各自原页</td></tr>
+      <tr><td>归档层级</td><td>43/43 成功</td><td>路径：福州地铁滨海快线/站点/垂梯·扶梯/设备编号/单据类型</td></tr>
+      <tr><td>发布版验收</td><td>自包含 exe 正常</td><td>dist 直接运行，OCR 状态为 PP-OCRv5，模型随包分发</td></tr>
+    </table>
+    <div class="callout">
+      <span class="label">仍未解决</span>
+      连笔手写仍读不准：本批 43 页里 21 页读不出“第 N 次”、9 页读不出日期，1 页手写年份被读成 2020（实为 2026）。PP-OCRv5 对手写标题、表格印制文字、日期数字有明显提升，但连笔姓名/编号仍需人工。产品上保留“无法辨认，请人工核对”的提示，不猜测；需要全自动时，下一步用真实样本微调专用手写模型（见第 7 节）。
+    </div>
+  </section>
+
+  <section id="s1">
+    <h2><span class="n">1</span>一页纸结论</h2>
+    <p>v1.0 已经跑通“导入 → 拆页 → 分类 → 勾选/漏签 → 导出”的主链路，但真实台账上的误报仍然偏多，主要集中在四类根因，而不是单点 bug：</p>
+    <table>
+      <tr><th style="width:22%">根因层</th><th>表现</th><th style="width:30%">性质</th></tr>
+      <tr><td>表格几何</td><td>第 27 项双倍高行导致 27/28/30 误判；N/A 落到相邻行</td><td>算法问题，可确定性修复</td></tr>
+      <tr><td>OCR 能力</td><td>第 N 次、日期、设备编号、手写姓名读不出；N/A 未识别</td><td>引擎能力问题，需换/补 OCR</td></tr>
+      <tr><td>签名口径</td><td>客户签名被强行归属；维保签名候选错</td><td>产品口径 + 模型能力</td></tr>
+      <tr><td>数据组织</td><td>没有“线路 → 站点 → 垂梯/扶梯 → 梯号”的层级</td><td>信息架构问题，改动可控</td></tr>
+    </table>
+    <div class="callout ok">
+      <span class="label">复审结论</span>
+      拆页、分类、导出、漏签“有没有签”已经可用；勾选完整性在普通行上可用，遇到双高行会偏；手写字段与签名归属目前只能算“辅助候选”，不能作为自动结论。建议按 P0（2 周内）先修表格几何、N/A、客户签名、设备号规则与归档层级，再按 P1 换 PP-OCRv5 并补签名样本。
+    </div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="n">2</span>问题复现与根因</h2>
+    <p class="small">以下页 15 / 页 5 的截图与材料中的 43 页样本一致（第 22 次、第 5 次，设备 LN60-071722-028）。可直接在样本上复现。</p>
+
+    <h3>2.1 第 27 项“空位较大”被误判，连带 28/30 误判</h3>
+    <div class="grid2">
+      <div class="box">
+        <h4>现象</h4>
+        <ul>
+          <li>第 27 项“层门锁钩锁”行高约为普通行的 2 倍；</li>
+          <li>系统报“第 27 项未填写”，并连带把 28、30 判成空白；</li>
+          <li>页 5 同时出现 1、28、30 三项空白。</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h4>根因</h4>
+        <ul>
+          <li><code>CheckReader.DetectRows</code> 用“等间距窗口”评分选行线；遇到双高行，等间距假设被破坏，窗口会跳线；</li>
+          <li>行带错位后，按“项号 → 行号”映射，27 之后的项整体偏移；</li>
+          <li>结果列固定 x 范围，但行带 y 偏移，导致勾选落在相邻行。</li>
+        </ul>
+      </div>
+    </div>
+    <p><span class="tag fix">修复方向</span>改用“形态学横线检测 + 行带合并”，不再假设等间距；双高行按高度中位数识别并保留为一个行带。标记检测改为“先找墨迹连通域，再按 y 中心归入行带”，而不是先算行高再切格。</p>
+
+    <h3>2.2 N/A 识别错误</h3>
+    <ul>
+      <li>N/A 是**印刷文字**（如第 1、17 项），不是手写勾选；当前只做墨迹比例，把 N/A 当“已填”，或行偏移后把 N/A 算到相邻项。</li>
+      <li>部分表单是手写圈住 N/A；需要同时识别“印刷 N/A 文本”和“手写圈 N/A”。</li>
+      <li>规则层没有“N/A 是合法结果”的显式状态，A1 只区分 FILLED/BLANK。</li>
+    </ul>
+    <p><span class="tag fix">修复方向</span>结果列做一次小区域 OCR/模板匹配，识别 <code>N/A</code>、<code>无此项</code>、<code>／</code>；CheckItem 增加 <code>NA</code> 状态；A1 只在 <code>BLANK</code> 时报警。</p>
+
+    <h3>2.3 手写第 N 次 / 日期 / 设备编号识别失败</h3>
+    <ul>
+      <li>Windows.Media.Ocr 对印刷体可靠，对连笔手写基本不返回文字；当前 <code>ExtractFields</code> 依赖整页 OCR 文本 + 正则，手写字段天然为空。</li>
+      <li>设备编号正则只认“三段连字符”格式，<code>HK09102</code>、<code>HK09102(N)</code> 被 C2 判为格式异常。</li>
+      <li>日期正则只认 <code>2026.8.18</code> 这类带分隔符的写法，OCR 可能输出 <code>2026818</code> 或带空格的形式。</li>
+      <li>没有“字段区域 OCR + 语法约束 + 置信度”的链路，只有整页文本兜底。</li>
+    </ul>
+    <p><span class="tag fix">修复方向</span>字段级高分辨率 OCR（日期/编号/第 N 次各自裁区域，2–3 倍上采样）+ 语法解码（日期、序号、设备号、运行次数）+ PP-OCRv5 手写增强；读不出时明确“待人工确认”，不猜测。</p>
+
+    <h3>2.4 客户签名被“乱识别”</h3>
+    <ul>
+      <li>当前对所有应签位置都调用 <code>SignatureEngine.MatchSlot</code>，包括 CUSTOMER。</li>
+      <li>客户没有字迹基准，强行在 20 人维保人员表中找最像的人，必然出现“施俊杰 49 分”这类结果。</li>
+      <li>候选列表还出现 <code>NaN</code>，是空特征/空候选序列化后的显示问题。</li>
+    </ul>
+    <p><span class="tag fix">修复方向</span>客户/第三方签名只校“有墨迹/无墨迹”，不做归属；维保人员签名才做候选+人工；修复 NaN 过滤与候选为空时的 UI。</p>
+
+    <h3>2.5 维保人员签名候选不准</h3>
+    <ul>
+      <li>字迹表留一法 Top-1 约 76%，但真实单据签名与字迹表存在扫描分辨率、笔画粗细、倾斜差异，域偏移明显；</li>
+      <li>两个签名在同一框内时，切分依赖投影，容易切错或合并；</li>
+      <li>描述子是手工特征，不是学习型签名模型，跨域泛化有限。</li>
+    </ul>
+    <p><span class="tag fix">修复方向</span>短期保持“候选+人工”，但改进切分与归一化；中期用 200–300 份带姓名标注的真实签名微调 SigNet/TrOCR 类模型，并做阈值校准。</p>
+
+    <h3>2.6 分类与归档层级缺失</h3>
+    <ul>
+      <li>当前只有批次的“站点/设备编号”两个自由文本，没有“线路 → 站点 → 垂梯/扶梯 → 梯号”的固定层级；</li>
+      <li>导出目录是“站点/设备/类型”，缺少“垂梯/扶梯”一层；</li>
+      <li>多个批次之间没有档案视图，无法按站汇总；</li>
+      <li>站点名称靠批次输入，表单上的手写项目名称读不出，无法自动归站。</li>
+    </ul>
+    <p><span class="tag fix">修复方向</span>增加线路/站点主数据、设备类型（垂梯/扶梯/自动人行道）、设备编号三个结构化字段；UI 按“站点 → 类型 → 梯号”分组；导出目录同步。</p>
+  </section>
+
+  <section id="s3">
+    <h2><span class="n">3</span>其他复审发现</h2>
+    <table>
+      <tr><th style="width:26%">问题</th><th>影响</th><th style="width:30%">建议</th></tr>
+      <tr><td>候选列表显示 NaN</td><td>用户无法判断候选是否可信</td><td>过滤非有限分数；空候选显示“无候选”</td></tr>
+      <tr><td>扫描黑边未裁剪</td><td>查看器上下黑边、缩略图观感差</td><td>仅显示层裁黑边，不改变审查坐标系</td></tr>
+      <tr><td>批次站点回填到所有页</td><td>单册混站时全部标成同一站</td><td>站点改为“批次默认 + 页级可覆盖”，并在混站时提示</td></tr>
+      <tr><td>字段无置信度展示</td><td>用户不知道哪一项是“猜的”</td><td>关键字段旁显示置信度/来源；低置信统一“待确认”</td></tr>
+      <tr><td>无法人工补录字段</td><td>手写读不出时日期/次数规则永远无法执行</td><td>增加“人工核对值”（仅用于审查，不改原件），可选</td></tr>
+      <tr><td>无问题清单导出</td><td>返工沟通仍靠截图</td><td>P1 增加 CSV/Excel 与标注 PDF</td></tr>
+      <tr><td>N/A 合法项规则缺失</td><td>模板标注“无此项”的项无法自动判定</td><td>模板包增加 <code>naItems</code>，A4 规则使用</td></tr>
+      <tr><td>签名字迹表人员固定 20 人</td><td>人员变动需改代码</td><td>人员表改为可导入的 CSV/JSON</td></tr>
+      <tr><td>分类只靠标题关键词 + 模板</td><td>标题模糊时退化为未识别</td><td>加入版式指纹与表格结构特征；未识别页单独统计</td></tr>
+    </table>
+  </section>
+
+  <section id="s4">
+    <h2><span class="n">4</span>GitHub 手写 OCR 开源调研</h2>
+    <p>目标：离线、Windows、C#/.NET 可集成，优先 Apache/MIT 许可证，能处理“连笔中文手写 + 数字 + 字母编号”。</p>
+    <table>
+      <tr><th style="width:24%">项目</th><th style="width:10%">热度</th><th style="width:12%">许可证</th><th>能力与适配性</th><th style="width:14%">结论</th></tr>
+      <tr>
+        <td><b>PaddleOCR / PP-OCRv5</b><br><span class="small">PaddlePaddle/PaddleOCR</span></td>
+        <td>93k★</td><td>Apache-2.0</td>
+        <td>官方称 PP-OCRv5 显著增强中英复杂手写体；技术报告给出非规范手写错误率下降 26%、整体加权准确率 53.0%→80.1%。有 C# 封装（PaddleOCRSharp）与 ONNX 路线。</td>
+        <td><span class="tag p0">首选</span>替换 Windows OCR</td>
+      </tr>
+      <tr>
+        <td><b>RapidOCR</b><br><span class="small">RapidAI/RapidOCR</span></td>
+        <td>8.6k★</td><td>Apache-2.0</td>
+        <td>基于 ONNX Runtime 的 PaddleOCR 推理库，支持多语言；C# 有 RapidOcrNet 封装，CPU 可跑、离线、体积可控。</td>
+        <td><span class="tag p0">运行时首选</span>与 PP-OCRv5 模型搭配</td>
+      </tr>
+      <tr>
+        <td><b>chineseocr/trocr-chinese</b></td>
+        <td>415★</td><td>未标注</td>
+        <td>TrOCR（BEiT+RoBERTa）中文场景文字识别，支持单行/多行、转 ONNX；但需要 PyTorch 权重与自定义训练，仓库未声明许可证。</td>
+        <td><span class="tag p1">仅研发评估</span>许可证风险，不直接分发</td>
+      </tr>
+      <tr>
+        <td><b>chinese-handwriting-ocr</b><br><span class="small">meta-evo-creator</span></td>
+        <td>2★</td><td>MIT</td>
+        <td>PaddleOCR + RapidOCR 双引擎，专门做“手写日期/签名/证件号”，带 450dpi 日期提取、范围校验、缺位推断、CRNN 数字训练脚本。项目很新、星少，但思路可直接借鉴。</td>
+        <td><span class="tag p1">借鉴流水线</span>不作为生产依赖</td>
+      </tr>
+      <tr>
+        <td><b>CASIA-HWDB 系列</b></td>
+        <td>100★ 级</td><td>各异</td>
+        <td>离线中文手写单字数据集与 CNN 识别模型（单字级），适合做数字/字母/单字分类器，不适合整行连笔。</td>
+        <td><span class="tag p2">备选</span>字段字符分类</td>
+      </tr>
+      <tr>
+        <td><b>tegaki</b></td>
+        <td>302★</td><td>各异</td>
+        <td>在线手写（笔顺/轨迹）识别，需要书写过程数据；扫描件没有轨迹，不适用。</td>
+        <td>不适用</td>
+      </tr>
+      <tr>
+        <td><b>Ocr-android / Handwriting-tickets-OCR</b></td>
+        <td>29★ / 2★</td><td>各异</td>
+        <td>前者 Android/Java，后者是手写票据表格实验项目；与本项目 .NET/离线/表格场景不完全匹配。</td>
+        <td>仅参考</td>
+      </tr>
+    </table>
+    <div class="callout blue">
+      <span class="label">调研结论</span>
+      没有一个“开箱即用、许可证干净、直接解决中文连笔手写日期”的 C# 库。最稳妥的路线是 <b>RapidOCR + PP-OCRv5 模型</b> 做字段级 OCR，再叠加<b>业务语法约束</b>与<b>少量真实样本微调</b>。TrOCR-Chinese 能力可能更强，但许可证未声明，不能直接随软件分发。
+    </div>
+    <p class="small">参考：PaddleOCR 文档与 PaddleOCR 3.0 技术报告（arXiv:2507.05595）、PP-OCRv5 论文（arXiv:2603.24373）、各仓库 README 与 GitHub API 元数据。</p>
+  </section>
+
+  <section id="s5">
+    <h2><span class="n">5</span>推荐技术路线</h2>
+    <div class="figure">
+      <svg viewBox="0 0 900 300" width="100%" role="img" aria-label="字段识别流水线">
+        <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#8a94a3"/></marker>
+          <style>.b{fill:#fff;stroke:#cfd6e0;stroke-width:1.3}.t{font:16px "Microsoft YaHei";fill:#1f2937}.s{font:13px "Microsoft YaHei";fill:#6b7280}.l{stroke:#8a94a3;stroke-width:1.5;fill:none;marker-end:url(#ar)}</style>
+        </defs>
+        <rect class="b" x="14" y="100" width="150" height="70" rx="10"/><text class="t" x="89" y="128" text-anchor="middle">字段定位</text><text class="s" x="89" y="150" text-anchor="middle">模板区域 / 锚点</text>
+        <rect class="b" x="194" y="100" width="160" height="70" rx="10"/><text class="t" x="274" y="128" text-anchor="middle">高分辨率裁切</text><text class="s" x="274" y="150" text-anchor="middle">2–3× 上采样</text>
+        <rect class="b" x="384" y="100" width="160" height="70" rx="10"/><text class="t" x="464" y="128" text-anchor="middle">PP-OCRv5</text><text class="s" x="464" y="150" text-anchor="middle">RapidOCR / ONNX</text>
+        <rect class="b" x="574" y="100" width="150" height="70" rx="10"/><text class="t" x="649" y="128" text-anchor="middle">语法解码</text><text class="s" x="649" y="150" text-anchor="middle">日期/编号/序号</text>
+        <rect class="b" x="754" y="100" width="132" height="70" rx="10"/><text class="t" x="820" y="128" text-anchor="middle">置信度</text><text class="s" x="820" y="150" text-anchor="middle">待人工确认</text>
+        <path class="l" d="M164,135 L192,135"/><path class="l" d="M354,135 L382,135"/><path class="l" d="M544,135 L572,135"/><path class="l" d="M724,135 L752,135"/>
+        <text class="s" x="450" y="220" text-anchor="middle">读不出 → 明确“无法辨认”，不猜；关键字段可人工补录（仅用于审查，不改原件）</text>
+      </svg>
+      <figcaption>字段级 OCR + 语法约束，替代“整页 OCR + 正则”的现状。</figcaption>
+    </div>
+    <table>
+      <tr><th style="width:24%">能力</th><th>v1.0 现状</th><th style="width:40%">v1.1 建议</th></tr>
+      <tr><td>印刷文字</td><td>Windows OCR，够用</td><td>保留 Windows OCR 作为 fallback；主引擎换 PP-OCRv5</td></tr>
+      <tr><td>手写日期/次数/编号</td><td>整页 OCR，基本读不出</td><td>字段级高分辨率 OCR + 语法解码 + 质量评分</td></tr>
+      <tr><td>手写姓名</td><td>OCR 不可靠</td><td>不依赖姓名 OCR；用签名归属 + 人工确认</td></tr>
+      <tr><td>勾选/N/A</td><td>墨迹比例</td><td>形态学行线 + 连通域标记 + N/A 文本识别</td></tr>
+      <tr><td>签名归属</td><td>手工描述子，候选+人工</td><td>短期改切分/归一化；中期用真实样本微调模型</td></tr>
+    </table>
+  </section>
+
+  <section id="s6">
+    <h2><span class="n">6</span>P0：表格与勾选重写</h2>
+    <p>目标：解决第 27 项、28/30 连带误判、N/A 错误，做到“每一行有明确的行带，每一个标记有明确的归属”。</p>
+    <h3>6.1 新算法</h3>
+    <ol>
+      <li><b>横线检测：</b>用 OpenCV 形态学（水平核 1×40）提取横线，得到每半表的线中心；不再用“行暗像素比例 + 等间距评分”。</li>
+      <li><b>行带合并：</b>计算相邻线间距的中位数；把明显大于 1.5 倍中位数的带标记为“双高行”，但保留为一个行带；确保行带数 = 模板项数。</li>
+      <li><b>标记检测：</b>在结果列 x 范围内做连通域，过滤表格线/噪声；按连通域中心 y 归入行带；一个行带内任意标记 = 已填。</li>
+      <li><b>标记分类：</b>用轻量分类器区分 ✓ / ○ / × / N/A / 其他；N/A 既可能是印刷字，也可能是手写圈。</li>
+      <li><b>N/A 文本：</b>对结果列做小区域 OCR（白名单 N/A、无此项、／），命中即 <code>NA</code>。</li>
+    </ol>
+    <h3>6.2 规则调整</h3>
+    <ul>
+      <li><code>CheckItem.Result</code> 增加 <code>NA</code>；A1 只对 <code>BLANK</code> 报警。</li>
+      <li>模板包增加 <code>naItems</code>（如垂梯半月 1、17），A4 用它判断“应 N/A 却填了勾”或“应实测却填 N/A”。</li>
+      <li>行带无法确定时，报“表格结构无法识别”，而不是逐项报空白。</li>
+    </ul>
+    <h3>6.3 验收</h3>
+    <ul>
+      <li>页 15：27/28/30 判定与人工一致；页 5：1/28/30 与人工一致。</li>
+      <li>43 页样本：A1 误报 ≤1 项/册；N/A 项不再报空白。</li>
+      <li>对 20 份真实单据做人工对照，勾选一致率 ≥98%。</li>
+    </ul>
+  </section>
+
+  <section id="s7">
+    <h2><span class="n">7</span>P0：字段 OCR 与语法解码</h2>
+    <h3>7.1 字段区域</h3>
+    <table>
+      <tr><th style="width:18%">字段</th><th>定位方式</th><th style="width:34%">解码规则</th></tr>
+      <tr><td>第 N 次</td><td>标题“第 __ 次”区域；固定比例 + 标题锚点</td><td>阿拉伯数字/中文数字；范围 1–200；与同设备序列校验</td></tr>
+      <tr><td>日期</td><td>“日期”锚点下方的签名区；或页脚日期</td><td>支持 <code>2026.8.18</code>、<code>2026-8-18</code>、<code>2026年8月18日</code>、<code>2026818</code>；范围校验；未来日期排除</td></tr>
+      <tr><td>设备编号</td><td>WBS/电梯编号行；或“当地编号/使用单位编号”</td><td>允许 <code>HK09102</code>、<code>HK09102(N)</code>、<code>LN60-071722-028</code>、<code>E3900-501-102</code>；统一大写与去空格</td></tr>
+      <tr><td>运行次数</td><td>页脚“运行次数”</td><td>数字 3–7 位；与上一期比较单调性</td></tr>
+      <tr><td>站点</td><td>项目名称行；读不出时用批次站点</td><td>与站点主数据做模糊匹配（编辑距离）</td></tr>
+    </table>
+    <h3>7.2 OCR 引擎</h3>
+    <ul>
+      <li><b>已实施：</b>RapidOcrNet + PP-OCRv5（Apache-2.0），CPU 本地推理，模型随安装包分发；Windows OCR 保留为 fallback。</li>
+      <li>字段裁切 2–3 倍上采样、灰度/对比度增强、去黑边；日期单独做 450dpi 级裁切（参考 chinese-handwriting-ocr 的做法）。</li>
+      <li>每个字段输出：原文、规范化值、置信度、来源区域；低置信进入“待人工确认”。</li>
+      <li>不把 OCR 文本直接当结论；规则只消费“高置信 + 通过语法校验”的值。</li>
+    </ul>
+    <h3>7.3 验收</h3>
+    <ul>
+      <li>在 50 页真实样本上建立字段基线：日期、第 N 次、设备编号各标注 50 个；</li>
+      <li>目标：清晰手写日期 ≥80%、设备编号 ≥85%、第 N 次 ≥80%（达不到则保持“待人工确认”，不强行自动化）。</li>
+    </ul>
+  </section>
+
+  <section id="s8">
+    <h2><span class="n">8</span>P0：签名口径修正</h2>
+    <table>
+      <tr><th style="width:22%">角色</th><th>v1.0</th><th style="width:36%">v1.1</th></tr>
+      <tr><td>客户/使用单位</td><td>也做归属比对，出现“施俊杰 49 分”</td><td>只校“有/无墨迹”，不显示候选人，不报“不是本人”</td></tr>
+      <tr><td>维保人员</td><td>候选+人工，但切分/归一化不稳</td><td>改进双签名切分（按投影谷值/连通域），归一化去边框；候选+人工；低分不再输出“不是在册人员”，统一“无法判断”</td></tr>
+      <tr><td>安全管理人员</td><td>角色映射混乱（F.1 的维保人员被当客户）</td><td>按表单类型绑定角色：保养单=客户；F.1=客户安全管理员 + 维保人员；C.2=客户安全管理员</td></tr>
+      <tr><td>候选展示</td><td>NaN / 空候选</td><td>过滤非有限分数；无候选显示“无候选”；分数保留两位</td></tr>
+    </table>
+    <h3>8.1 中期模型</h3>
+    <ul>
+      <li>收集 200–300 份真实单据上的维保签名，人工标注姓名；</li>
+      <li>用 SigNet 类度量学习或 TrOCR-Chinese 做微调（注意许可证）；</li>
+      <li>留一法/跨单据验证，目标 Top-1 ≥90%、误配 ≤1%；达不到就保持“候选+人工”。</li>
+    </ul>
+  </section>
+
+  <section id="s9">
+    <h2><span class="n">9</span>P0：归档层级（福州地铁滨海快线）</h2>
+    <p>目标目录/界面层级：</p>
+    <pre style="background:#101418;color:#e6edf3;padding:14px 16px;border-radius:10px;overflow:auto;font-size:12.5px;">滨海快线/
+  站点A/
+    垂梯/
+      LN60-071722-028/
+        垂梯半月保养单/
+        监督记录表/
+        定期自行检查记录表/
+    扶梯/
+      HK09102/
+        ...
+  站点B/
+    ...</pre>
+    <h3>9.1 需要的字段</h3>
+    <table>
+      <tr><th style="width:20%">字段</th><th>来源</th><th style="width:30%">说明</th></tr>
+      <tr><td>线路</td><td>固定值/配置</td><td>当前为“福州地铁滨海快线”</td></tr>
+      <tr><td>站点</td><td>批次选择/表单项目名称</td><td>建议做站点主数据，导入时下拉选择；手写读不出时不猜</td></tr>
+      <tr><td>设备类型</td><td>单据类型推断</td><td>垂梯（CHUITI）/ 扶梯（FUTI）/ 自动人行道（如单独模板）</td></tr>
+      <tr><td>设备编号</td><td>批次输入/文件名/表单</td><td>优先级：人工输入 &gt; 文件名 &gt; OCR</td></tr>
+      <tr><td>单据类型</td><td>分类器</td><td>现有 12 类</td></tr>
+    </table>
+    <h3>9.2 UI 改造</h3>
+    <ul>
+      <li>批次详情增加“按站点 → 类型 → 梯号”分组视图，默认折叠；</li>
+      <li>筛选器增加站点、设备类型、设备编号；</li>
+      <li>导出目录同步为“线路/站点/类型/梯号/单据类型”；</li>
+      <li>增加“档案”页，跨批次按梯号汇总（P1）。</li>
+    </ul>
+    <div class="callout">
+      <span class="label">需要你提供</span>
+      滨海快线的<b>站点清单</b>（标准站名）与设备编号规则（例如 HK09102(N) 的含义、是否每站独立编号）。没有清单时，先用批次自由文本 + 站点模糊匹配，不能自动保证“按站分好”。
+    </div>
+  </section>
+
+  <section id="s10">
+    <h2><span class="n">10</span>P1 / P2 路线</h2>
+    <table>
+      <tr><th style="width:12%">优先级</th><th style="width:28%">能力</th><th>内容</th><th style="width:14%">预估</th></tr>
+      <tr><td><span class="tag p0">P0</span></td><td>表格/勾选/N/A</td><td>形态学行线、行带合并、标记连通域、N/A 文本</td><td>2–3 天</td></tr>
+      <tr><td><span class="tag p0">P0</span></td><td>字段 OCR</td><td>RapidOCR+PP-OCRv5、字段裁切、语法解码、置信度</td><td>3–5 天</td></tr>
+      <tr><td><span class="tag p0">P0</span></td><td>签名口径</td><td>客户只校存在、角色修正、NaN 修复</td><td>1 天</td></tr>
+      <tr><td><span class="tag p0">P0</span></td><td>归档层级</td><td>站点/类型/梯号分组与导出目录</td><td>1–2 天</td></tr>
+      <tr><td><span class="tag p1">P1</span></td><td>签名模型</td><td>收集标注、微调、阈值校准</td><td>2–4 周（依赖数据）</td></tr>
+      <tr><td><span class="tag p1">P1</span></td><td>规则与报告</td><td>N/A 合法项、日期周期、问题闭环、同站异类；Excel/标注 PDF</td><td>3–5 天</td></tr>
+      <tr><td><span class="tag p2">P2</span></td><td>档案与运维</td><td>跨批次档案、模板包管理、日志与备份</td><td>1 周</td></tr>
+    </table>
+  </section>
+
+  <section id="s11">
+    <h2><span class="n">11</span>验收指标</h2>
+    <table>
+      <tr><th style="width:28%">指标</th><th style="width:20%">v1.0</th><th style="width:22%">v1.1 目标</th><th>测量方式</th></tr>
+      <tr><td>勾选一致率</td><td>普通行可用，双高行偏</td><td>≥98%</td><td>20 份真实单据逐项人工对照</td></tr>
+      <tr><td>A1 误报</td><td>每册 5–10 条</td><td>≤1 条/册</td><td>43 页样本 + 20 份真实单据</td></tr>
+      <tr><td>N/A 正确率</td><td>未识别</td><td>≥95%</td><td>标注 50 个 N/A 单元</td></tr>
+      <tr><td>手写日期</td><td>≈0</td><td>≥80%（清晰）</td><td>50 个日期字段标注</td></tr>
+      <tr><td>设备编号</td><td>格式误报</td><td>≥85%，格式误报 ≤1%</td><td>50 个编号字段</td></tr>
+      <tr><td>第 N 次</td><td>读不出</td><td>≥80%</td><td>50 个序号字段</td></tr>
+      <tr><td>客户签名误报</td><td>有</td><td>0</td><td>只校存在，不归属</td></tr>
+      <tr><td>维保签名 Top-1</td><td>表单域偏低</td><td>≥90%（有标注后）</td><td>200–300 份标注、留一法/跨单验证</td></tr>
+      <tr><td>归档正确率</td><td>无层级</td><td>≥99%</td><td>站点/类型/梯号目录抽查</td></tr>
+    </table>
+    <div class="callout red">
+      <span class="label">验收纪律</span>
+      不用合成数据代替真实单据；不把“能跑”写成“准确”；未达标项保留“待人工确认”，不强行自动化。
+    </div>
+  </section>
+
+  <section id="s12">
+    <h2><span class="n">12</span>需要你提供</h2>
+    <table>
+      <tr><th style="width:8%">#</th><th style="width:36%">材料</th><th>用途</th></tr>
+      <tr><td>1</td><td>福州地铁滨海快线标准站点清单</td><td>站点主数据、下拉选择、归档目录</td></tr>
+      <tr><td>2</td><td>设备编号规则（HK09102、LN60-... 等）</td><td>校验与规范化，避免格式误报</td></tr>
+      <tr><td>3</td><td>页 5、页 15 所在原始 PDF</td><td>精确复现 27/28/30 与 N/A 问题</td></tr>
+      <tr><td>4</td><td>20–30 份有代表性的真实单据（含模糊、连笔、N/A）</td><td>表格与字段基线</td></tr>
+      <tr><td>5</td><td>200–300 份维保签名 + 姓名标注（可脱敏）</td><td>签名模型微调与阈值校准</td></tr>
+      <tr><td>6</td><td>各类表单“应 N/A 项”清单</td><td>A4 规则与模板包</td></tr>
+      <tr><td>7</td><td>日期/次数/设备编号的人工真值样例</td><td>字段 OCR 评测</td></tr>
+    </table>
+  </section>
+
+  <section id="s13">
+    <h2><span class="n">13</span>风险与决策</h2>
+    <table>
+      <tr><th style="width:26%">风险/决策</th><th>说明</th><th style="width:30%">建议</th></tr>
+      <tr><td>手写 OCR 上限</td><td>即使 PP-OCRv5，连笔日期/编号也不可能 100%</td><td>产品上保留“无法辨认/待人工确认”，不追求全自动</td></tr>
+      <tr><td>签名模型许可证</td><td>TrOCR-Chinese 未声明许可证</td><td>优先 Apache-2.0 的 PP-OCR/RapidOCR；签名模型自训或选可商用权重</td></tr>
+      <tr><td>站点主数据</td><td>没有站点清单无法保证“按站分好”</td><td>先做可配置站点表，后续导入标准清单</td></tr>
+      <tr><td>双高行/合并单元格</td><td>表格结构变化多</td><td>行线 + 行带合并；无法确定时整表报“结构无法识别”</td></tr>
+      <tr><td>性能</td><td>PP-OCRv5 + 字段 OCR 会增加耗时</td><td>只对字段区域做 OCR，整页 OCR 降频；缓存</td></tr>
+      <tr><td>包体</td><td>ONNX 模型增加 20–60MB</td><td>模型随包分发，保持离线；可分离可选包</td></tr>
+    </table>
+  </section>
+
+  <section id="s14">
+    <h2><span class="n">14</span>代码位置索引</h2>
+    <table>
+      <tr><th style="width:36%">文件</th><th>职责</th><th style="width:18%">本次改动</th></tr>
+      <tr><td><code>Vision/CheckReader.cs</code></td><td>行线检测、行带、结果列墨迹</td><td>重写</td></tr>
+      <tr><td><code>Vision/ImageOps.cs</code></td><td>Otsu、墨迹、签名特征</td><td>增加形态学/连通域</td></tr>
+      <tr><td><code>Pipeline/Processor.cs</code></td><td>字段抽取、签名角色、OCR 调用</td><td>改字段 OCR/角色</td></tr>
+      <tr><td><code>Vision/SignatureEngine.cs</code></td><td>切分、比对、三态</td><td>改切分/阈值/NaN</td></tr>
+      <tr><td><code>Domain/Models.cs</code></td><td>模板几何、单据类型</td><td>加 naItems/设备类型</td></tr>
+      <tr><td><code>Pipeline/Exporter.cs</code></td><td>单页导出与命名</td><td>加线路/站点/类型层</td></tr>
+      <tr><td><code>Infrastructure/Db.cs</code></td><td>批次/页/字段/问题</td><td>加站点/类型/梯号字段</td></tr>
+      <tr><td><code>wwwroot/app.js</code></td><td>分组视图、筛选、签名 UI</td><td>改层级与候选</td></tr>
+    </table>
+    <p class="small" style="margin-top:24px;">— 文档结束 —　配套：《PRD》《系统架构设计》《使用说明》</p>
+  </section>
+</main>
+</div>
+</body>
+</html>

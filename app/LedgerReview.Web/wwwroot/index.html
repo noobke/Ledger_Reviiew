@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>台账审查工具</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <div class="logo">台</div>
+        <div>
+          <div class="brand-name">台账审查</div>
+          <div class="brand-sub">Ledger Review</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="home">批次</button>
+        <button class="nav-item" data-view="about">说明</button>
+      </nav>
+      <div class="side-status" id="sideStatus">
+        <div class="status-line"><span class="dot wait"></span><span id="statusOcr">正在检查 OCR…</span></div>
+        <div class="status-line"><span class="dot wait"></span><span id="statusSig">正在检查字迹表…</span></div>
+        <div class="status-line path" id="statusWs"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="crumb" id="crumb">批次</div>
+        <div class="actions" id="topActions"></div>
+      </header>
+
+      <section id="view-home" class="view">
+        <div class="hero">
+          <div>
+            <h1>把一梯一档的扫描台账，拆开、分类、挑错。</h1>
+            <p>导入整册 PDF，自动拆成一页一单，识别表单类型，检查缺项、漏签、日期与设备号，并把问题定位到页码。</p>
+          </div>
+          <div class="hero-facts">
+            <div><b>一页一单</b><span>自动拆页归档</span></div>
+            <div><b>12 类表单</b><span>内置模板零配置</span></div>
+            <div><b>签名三态</b><span>低置信人工确认</span></div>
+          </div>
+        </div>
+
+        <div class="card import-card">
+          <div class="card-head">
+            <h2>导入新批次</h2>
+            <span class="hint">支持一次选择多个 PDF；每册通常对应一台电梯</span>
+          </div>
+          <div class="import-grid">
+            <div class="dropzone" id="dropzone">
+              <input type="file" id="fileInput" multiple accept="application/pdf,.pdf" hidden />
+              <div class="dz-icon">PDF</div>
+              <div class="dz-title">拖入 PDF，或点击选择</div>
+              <div class="dz-sub">单册几十到几百页都可以；文件只在本机处理</div>
+              <div class="dz-files" id="pickedFiles"></div>
+            </div>
+            <div class="import-form">
+              <label>批次名称 <input id="batchName" placeholder="例如：2026-11 滨海快线-XX站" /></label>
+              <label>站点（可选） <input id="batchStation" placeholder="例如：滨海快线-XX站" /></label>
+              <label>设备编号（可选，单梯档案填） <input id="batchEquipment" placeholder="例如：LN60-071722-028" /></label>
+              <button class="btn primary big" id="btnImport">开始导入并审查</button>
+              <div class="tiny">导入后可随时关闭页面，处理在后台继续；重新打开可看进度。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>批次</h2>
+            <button class="btn ghost" id="btnRefresh">刷新</button>
+          </div>
+          <div id="batchList" class="batch-list"></div>
+        </div>
+      </section>
+
+      <section id="view-batch" class="view" hidden>
+        <div class="batch-head">
+          <button class="btn ghost" id="btnBack">← 返回</button>
+          <div class="batch-title">
+            <h1 id="bTitle">批次</h1>
+            <div class="batch-meta" id="bMeta"></div>
+          </div>
+          <div class="batch-actions">
+            <button class="btn" id="btnReprocess">重跑未完成页</button>
+            <button class="btn primary" id="btnExport">导出拆分 PDF</button>
+          </div>
+        </div>
+
+        <div class="stats" id="bStats"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>页与单据</h2>
+            <div class="filters">
+              <select id="filterType"><option value="ALL">全部类型</option></select>
+              <label class="check"><input type="checkbox" id="filterProblem" /> 只看有问题</label>
+            </div>
+          </div>
+          <div id="pageGrid" class="page-grid"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>问题清单</h2>
+            <span class="hint" id="findingHint"></span>
+          </div>
+          <div id="findingList" class="finding-list"></div>
+        </div>
+      </section>
+
+      <section id="view-about" class="view" hidden>
+        <div class="card prose">
+          <h1>使用说明</h1>
+          <h3>1. 导入</h3>
+          <p>选择一个或多个整册 PDF。系统会在本机工作区保存原件副本，逐页渲染并识别；原件不会被修改。</p>
+          <h3>2. 看结果</h3>
+          <p>按严重度浏览问题清单；点击页卡片查看原图、字段、检查项与签名。红色框为严重问题，橙色为一般问题。</p>
+          <h3>3. 签名确认</h3>
+          <p>签名给出“是某人 / 不是在册人员 / 无法判断”三态。灰区请人工从候选或人员表中选择；人工结论只用于本批报告。</p>
+          <h3>4. 导出</h3>
+          <p>导出为一页一份 PDF，按“站点 / 设备 / 类型”归档，文件名包含日期与原页码。已存在同名文件会跳过。</p>
+          <h3>边界</h3>
+          <p>本工具是辅助筛查，不做合规终裁。手写识别、签名归属均可能有误差，请以原件为准。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="drawer" id="drawer" hidden>
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
+    <div class="drawer-panel">
+      <div class="drawer-head">
+        <div>
+          <div class="drawer-title" id="dTitle">单据</div>
+          <div class="drawer-sub" id="dSub"></div>
+        </div>
+        <button class="btn ghost" id="btnCloseDrawer">关闭</button>
+      </div>
+      <div class="drawer-body">
+        <div class="viewer">
+          <div class="viewer-tools">
+            <button class="btn tiny" id="btnZoomOut">-</button>
+            <span id="zoomLabel">100%</span>
+            <button class="btn tiny" id="btnZoomIn">+</button>
+            <button class="btn tiny" id="btnPrevPage">上一页</button>
+            <button class="btn tiny" id="btnNextPage">下一页</button>
+          </div>
+          <div class="image-wrap" id="imageWrap">
+            <img id="pageImage" alt="台账页" />
+            <div id="overlay"></div>
+          </div>
+        </div>
+        <div class="detail">
+          <div id="dFindings"></div>
+          <div id="dFields"></div>
+          <div id="dChecks"></div>
+          <div id="dSignatures"></div>
+          <details class="ocr-box"><summary>OCR 原文（排查用）</summary><pre id="dOcr"></pre></details>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
