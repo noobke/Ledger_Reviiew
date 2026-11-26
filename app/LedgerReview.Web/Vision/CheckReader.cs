@@ -22,7 +22,14 @@ public sealed class CheckReader
                 var bands = left ? leftBands : rightBands;
                 double x = left ? t.LeftResultX : t.RightResultX;
                 var (y0, y1) = Band(bands, row, left ? t.RowsLeft : t.RowsRight, t.TableTop, t.TableBottom);
-                Add(result, page, ocr, i + 1, new Rect(x, y0 + 0.001, t.ResultWidth, Math.Max(0.006, y1 - y0 - 0.002)), t.NaItems.Contains(i + 1));
+                var rect = new Rect(x, y0 + 0.001, t.ResultWidth, Math.Max(0.006, y1 - y0 - 0.002));
+                var cf = Add(result, page, ocr, i + 1, rect, t.NaItems.Contains(i + 1));
+                // 每列最后一行常因表格底线贴着而把行带压薄，勾选被判空白；向上补 1.2% 再判一次。
+                if (cf.Result == "BLANK" && row == (left ? t.RowsLeft : t.RowsRight) - 1)
+                {
+                    result.RemoveAt(result.Count - 1);
+                    Add(result, page, ocr, i + 1, new Rect(rect.X, Math.Max(0, rect.Y - 0.012), rect.W, rect.H + 0.012), t.NaItems.Contains(i + 1));
+                }
             }
         }
         else
@@ -31,14 +38,23 @@ public sealed class CheckReader
             for (int i = 0; i < t.ItemCount; i++)
             {
                 var (y0, y1) = Band(bands, i, t.RowsLeft, t.TableTop, t.TableBottom);
-                Add(result, page, ocr, i + 1, new Rect(t.LeftResultX, y0 + 0.001, t.ResultWidth, Math.Max(0.006, y1 - y0 - 0.002)), t.NaItems.Contains(i + 1));
+                var rect = new Rect(t.LeftResultX, y0 + 0.001, t.ResultWidth, Math.Max(0.006, y1 - y0 - 0.002));
+                var cf = Add(result, page, ocr, i + 1, rect, t.NaItems.Contains(i + 1));
+                if (cf.Result == "BLANK" && i == t.ItemCount - 1)
+                {
+                    result.RemoveAt(result.Count - 1);
+                    Add(result, page, ocr, i + 1, new Rect(rect.X, Math.Max(0, rect.Y - 0.012), rect.W, rect.H + 0.012), t.NaItems.Contains(i + 1));
+                }
             }
         }
         return result;
     }
 
-    private static void Add(List<CheckFact> list, SKBitmap page, OcrPage? ocr, int itemNo, Rect rect, bool naExpected)
+    private static CheckFact Add(List<CheckFact> list, SKBitmap page, OcrPage? ocr, int itemNo, Rect rect, bool naExpected)
     {
+        // 行带检测偶发把某行压得很薄，勾选会被判成空白；小于 1.4% 页高时上下各放 0.5% 再判断。
+        if (rect.H < 0.014)
+            rect = new Rect(rect.X, Math.Max(0, rect.Y - 0.005), rect.W, rect.H + 0.010);
         bool na = IsNa(ocr, rect);
         double ink = ImageOps.InkRatio(page, rect, 0.12);
         // 勾选常压在列线/格线上，首轮没墨迹时向右下放宽一点再判一次，避免把已勾选判成空白。
@@ -52,7 +68,9 @@ public sealed class CheckReader
         if (na) result = "NA";
         else if (ink <= 0.007) result = "BLANK";
         else result = naExpected ? "NA" : "FILLED";
-        list.Add(new CheckFact { ItemNo = itemNo, Ink = ink, Result = result, Rect = rect });
+        var fact = new CheckFact { ItemNo = itemNo, Ink = ink, Result = result, Rect = rect };
+        list.Add(fact);
+        return fact;
     }
 
     private static bool IsNa(OcrPage? ocr, Rect rect)

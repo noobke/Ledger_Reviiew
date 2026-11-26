@@ -42,6 +42,7 @@ builder.Services.AddSingleton<TemplateStore>();
 builder.Services.AddSingleton<Classifier>();
 builder.Services.AddSingleton<CheckReader>();
 builder.Services.AddSingleton<SignatureEngine>();
+builder.Services.AddSingleton<DigitRecognizer>();
 builder.Services.AddSingleton<AuditEngine>();
 builder.Services.AddSingleton<Exporter>();
 builder.Services.AddSingleton<Processor>();

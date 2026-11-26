@@ -54,30 +54,23 @@ public sealed class AuditEngine
                     RuleCode = "A4", Severity = Severity.Info,
                     Message = $"第 {string.Join("、", filledNa)} 项模板标注“无此项”，但填了勾选/实测值，请确认"
                 });
-            var unexpectedNa = f.Checks.Where(c => c.Result == "NA" && !t.NaItems.Contains(c.ItemNo))
-                .Select(c => c.ItemNo).ToList();
-            if (unexpectedNa.Count > 0)
-                list.Add(new FindingDraft
-                {
-                    RuleCode = "A4", Severity = Severity.Info,
-                    Message = $"第 {string.Join("、", unexpectedNa)} 项填了 N/A，模板未标注“无此项”，请确认"
-                });
+            // 现场会按电梯配置写 N/A（不只模板标注的那几项），这类“模板外 N/A”不提示，避免整册几十条噪声。
         }
 
         // A2 表头必填
         if (ocrAvailable)
         {
             if (string.IsNullOrEmpty(f.EquipmentId))
-                list.Add(new FindingDraft { RuleCode = "A2", Severity = Severity.Warning, Message = "未识别到设备编号（手写字段可能无法识别，请人工核对）" });
+                list.Add(new FindingDraft { RuleCode = "A2", Severity = Severity.Info, Message = "未识别到设备编号（手写字段可能无法识别，请人工核对）" });
             if (string.IsNullOrEmpty(f.DocDate))
                 list.Add(new FindingDraft { RuleCode = "A2", Severity = Severity.Warning, Message = "未识别到日期（手写字段可能无法识别，请人工核对）" });
             if (f.SeqNo == null && (t.Family == "CHUITI" || t.Family == "FUTI"))
                 list.Add(new FindingDraft { RuleCode = "A2", Severity = Severity.Info, Message = "未识别到第 N 次（手写字段可能无法识别）" });
         }
 
-        // B1 未来日期
-        if (DateTime.TryParse(f.DocDate, out var d) && d.Date > DateTime.Today)
-            list.Add(new FindingDraft { RuleCode = "B1", Severity = Severity.Serious, Message = $"日期晚于今天：{d:yyyy-MM-dd}" });
+        // B1 未来日期：手写“10”常被读成“12”，留 45 天余量，超过才判异常
+        if (DateTime.TryParse(f.DocDate, out var d) && d.Date > DateTime.Today.AddDays(45))
+            list.Add(new FindingDraft { RuleCode = "B1", Severity = Severity.Serious, Message = $"日期晚于今天 45 天以上：{d:yyyy-MM-dd}（手写日期，请核对原图）" });
 
         // C2 设备号格式
         if (!string.IsNullOrEmpty(f.EquipmentId))
@@ -145,12 +138,16 @@ public sealed class AuditEngine
                        .OrderBy(d => d.SeqNo).ToList();
             for (int i = 1; i < seq.Count; i++)
             {
-                if (DateTime.TryParse(seq[i - 1].DocDate, out var prev) && DateTime.TryParse(seq[i].DocDate, out var cur) && cur < prev)
-                    Add(seq[i], new FindingDraft
-                    {
-                        RuleCode = "B2", Severity = Severity.Serious,
-                        Message = $"第 {seq[i].SeqNo} 次日期 {cur:yyyy-MM-dd} 早于第 {seq[i - 1].SeqNo} 次 {prev:yyyy-MM-dd}"
-                    });
+                if (!DateTime.TryParse(seq[i - 1].DocDate, out var prev) || !DateTime.TryParse(seq[i].DocDate, out var cur)) continue;
+                if (cur >= prev) continue;
+                // 手写“第 N 次”经常把 13 读成 3、21 读成 2；只有日期差 ≥30 天且次数差 ≥5 才提示，
+                // 否则全是 OCR 噪声，宁可交给人工看原图。
+                if ((prev - cur).TotalDays < 30 || Math.Abs(seq[i].SeqNo - seq[i - 1].SeqNo) < 5) continue;
+                Add(seq[i], new FindingDraft
+                {
+                    RuleCode = "B2", Severity = Severity.Warning,
+                    Message = $"第 {seq[i].SeqNo} 次日期 {cur:yyyy-MM-dd} 早于第 {seq[i - 1].SeqNo} 次 {prev:yyyy-MM-dd}（次数为手写识别，请核对）"
+                });
             }
         }
 

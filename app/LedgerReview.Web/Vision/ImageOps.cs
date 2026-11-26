@@ -24,6 +24,23 @@ public static class ImageOps
         return gray;
     }
 
+    /// <summary>Otsu 二值化，压掉底灰、增强手写笔画对比，供 OCR 再试一档。</summary>
+    public static unsafe SKBitmap Binarize(SKBitmap src)
+    {
+        var bgra = EnsureBgra(src);
+        var gray = ToGray(bgra);
+        int w = src.Width, h = src.Height;
+        int t = Otsu(gray, 0, 0, w, h, w);
+        var dst = new SKBitmap(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Opaque));
+        byte* p = (byte*)dst.GetPixels().ToPointer();
+        for (int i = 0; i < w * h; i++)
+        {
+            byte v = gray[i] < t ? (byte)0 : (byte)255;
+            p[i * 4] = v; p[i * 4 + 1] = v; p[i * 4 + 2] = v; p[i * 4 + 3] = 255;
+        }
+        return dst;
+    }
+
     public static int Otsu(byte[] gray, int x0, int y0, int rw, int rh, int stride)
     {
         var hist = new int[256];

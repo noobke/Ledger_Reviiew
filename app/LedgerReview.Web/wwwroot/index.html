@@ -49,7 +49,7 @@
         <div class="card import-card">
           <div class="card-head">
             <h2>导入新批次</h2>
-            <span class="hint">支持一次选择多个 PDF；每册通常对应一台电梯</span>
+            <span class="hint">支持一次选择多个 PDF（可跨站点、多台梯）；站点/设备编号留空会自动从表单识别</span>
           </div>
           <div class="import-grid">
             <div class="dropzone" id="dropzone">
@@ -60,9 +60,9 @@
               <div class="dz-files" id="pickedFiles"></div>
             </div>
             <div class="import-form">
-              <label>批次名称 <input id="batchName" placeholder="例如：2026-11 滨海快线-XX站" /></label>
-              <label>站点（可选） <input id="batchStation" placeholder="例如：滨海快线-XX站" /></label>
-              <label>设备编号（可选，单梯档案填） <input id="batchEquipment" placeholder="例如：LN60-071722-028" /></label>
+              <label>批次名称（可选，留空自动） <input id="batchName" placeholder="留空按识别到的站点/设备自动命名" /></label>
+              <label>站点（可选，批量导入留空） <input id="batchStation" placeholder="留空自动识别；仅单站整批时可填" /></label>
+              <label>设备编号（可选，单梯整批时填） <input id="batchEquipment" placeholder="留空自动识别；单梯整批时填可保证准确" /></label>
               <button class="btn primary big" id="btnImport">开始导入并审查</button>
               <div class="tiny">导入后可随时关闭页面，处理在后台继续；重新打开可看进度。</div>
             </div>
@@ -87,6 +87,7 @@
           </div>
           <div class="batch-actions">
             <button class="btn" id="btnReprocess">重跑未完成页</button>
+            <button class="btn" id="btnReprocessAll">重新审查全部页</button>
             <button class="btn primary" id="btnExport">导出拆分 PDF</button>
           </div>
         </div>

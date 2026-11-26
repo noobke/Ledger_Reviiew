@@ -5,6 +5,7 @@ using LedgerReview.Pdf;
 using LedgerReview.Pipeline;
 using LedgerReview.Vision;
 using Microsoft.AspNetCore.Http.Features;
+using SkiaSharp;
 
 namespace LedgerReview.Api;
 
@@ -83,14 +84,18 @@ public static class Endpoints
             var pages = db.GetPages(id, null, false);
             var files = db.GetFiles(id);
             var findings = db.GetFindings(id, null, "open", 1000);
-            var byType = pages.GroupBy(p => string.IsNullOrEmpty(p.DocType) ? "Unknown" : p.DocType)
+            var donePages = pages.Where(p => p.Status == "done").ToList();
+            var byType = donePages.GroupBy(p => string.IsNullOrEmpty(p.DocType) ? "Unknown" : p.DocType)
                 .Select(g => new { type = g.Key, name = TypeName(g.Key), count = g.Count(),
                     blanks = g.Sum(p => p.SeriousFindings) }).OrderByDescending(x => x.count);
             return Results.Ok(new { batch = b, files, pages, findings, stats = new
             {
                 total = pages.Count,
-                done = pages.Count(p => p.Status == "done"),
-                unknown = pages.Count(p => string.IsNullOrEmpty(p.DocType) || p.DocType == "Unknown"),
+                done = donePages.Count,
+                pending = pages.Count(p => p.Status == "pending"),
+                failed = pages.Count(p => p.Status == "failed"),
+                // 只有已处理完的页才计入“未识别”，排队中的页不能算成识别失败。
+                unknown = donePages.Count(p => string.IsNullOrEmpty(p.DocType) || p.DocType == "Unknown"),
                 serious = findings.Count(f => f.Severity == "Serious"),
                 warning = findings.Count(f => f.Severity == "Warning"),
                 open = findings.Count(f => f.Status == "open")
@@ -135,6 +140,31 @@ public static class Endpoints
             return Results.Ok(new { ok = true });
         });
 
+        // 人工修正“第 N 次”：写回结果，并把该数字切片入库，供后续识别越用越准。
+        app.MapPost("/api/pages/{id}/seq", (string id, SeqFix body, Db db, Workspace ws, DigitRecognizer digits) =>
+        {
+            var d = db.GetPageDetail(id);
+            if (d == null) return Results.NotFound();
+            if (body.Value is < 1 or > 300) return Results.BadRequest(new { error = "次数应在 1–300 之间" });
+            if (string.IsNullOrWhiteSpace(d.DocId)) return Results.BadRequest(new { error = "该页尚未完成识别" });
+            db.SetDocumentSeq(d.DocId, body.Value);
+            int learned = 0;
+            try
+            {
+                var cropDir = ws.CropsDir(d.BatchId);
+                var file = Directory.Exists(cropDir)
+                    ? Directory.GetFiles(cropDir, $"*_p{d.PageNo:D3}_*_seqgap.png").FirstOrDefault()
+                    : null;
+                if (file != null)
+                {
+                    using var crop = SKBitmap.Decode(file);
+                    if (crop != null) learned = digits.LearnFrom(crop, body.Value, ws);
+                }
+            }
+            catch { }
+            return Results.Ok(new { ok = true, learned });
+        }).DisableAntiforgery();
+
         app.MapPost("/api/matches/{id}/confirm", (long id, MatchConfirm body, Db db) =>
         {
             var person = string.IsNullOrEmpty(body.PersonId) ? null : db.GetPerson(body.PersonId!);
@@ -162,10 +192,15 @@ public static class Endpoints
             return Results.Ok(new { dir });
         });
 
-        app.MapPost("/api/batches/{id}/reprocess", (string id, Db db, Processor proc) =>
+        app.MapPost("/api/batches/{id}/reprocess", (string id, bool? all, Db db, Processor proc) =>
         {
             var b = db.GetBatch(id);
             if (b == null) return Results.NotFound();
+            if (all == true)
+            {
+                db.ResetPages(id);
+                db.UpdateBatch(id, b.TotalPages, 0, "pending");
+            }
             db.SetBatchStatus(id, "pending");
             proc.Enqueue(id);
             return Results.Ok(new { ok = true });
@@ -188,3 +223,4 @@ public static class Endpoints
 public sealed record FindingStatus(string Status);
 public sealed record MatchConfirm(string? PersonId, string Verdict);
 public sealed record ExportRequest(string? OutputDir);
+public sealed record SeqFix(int Value);

@@ -110,7 +110,12 @@ async function openBatch(id) {
 function renderBatch(d) {
   const b = d.batch;
   $('#bTitle').textContent = b.name;
-  $('#bMeta').textContent = `${b.station || '未填写站点'} · 导入于 ${fmtTime(b.createdAt)} · ${statusText(b.status)}`;
+  const tail = b.status === 'pending'
+    ? '排队中（前面还有批次在处理，完成后自动开始）'
+    : b.status === 'processing'
+      ? `处理中 ${d.stats.done}/${d.stats.total}`
+      : statusText(b.status);
+  $('#bMeta').textContent = `${b.station || '未填写站点'} · 导入于 ${fmtTime(b.createdAt)} · ${tail}`;
   $('#bStats').innerHTML = `
     <div class="stat"><div class="k">总页数</div><div class="v">${d.stats.total}</div></div>
     <div class="stat"><div class="k">已处理</div><div class="v green">${d.stats.done}</div></div>
@@ -134,14 +139,23 @@ function pageCard(p) {
   const thumb = p.thumbPath ? `/api/pages/${p.id}/thumb` : '';
   const badge = p.seriousFindings ? `<div class="badge red">${p.seriousFindings}</div>`
     : (p.openFindings ? `<div class="badge amber">${p.openFindings}</div>` : '');
+  const st = p.status || 'pending';
+  const done = st === 'done';
   const meta = [p.docDate, p.equipmentId].filter(Boolean).join(' · ');
+  const typeLabel = done ? typeName(p.docType)
+    : st === 'failed' ? '处理失败'
+      : st === 'pending' ? '排队中' : '处理中';
+  const metaLabel = done ? (meta || '未识别日期/设备')
+    : st === 'failed' ? (p.error || '处理失败，请重试')
+      : '等待审查';
+  const phText = st === 'pending' ? '排队中' : st === 'failed' ? '失败' : '无图';
   return `<div class="page-card" data-id="${p.id}">
     ${badge}
-    <div class="page-thumb">${thumb ? `<img loading="lazy" src="${thumb}" alt="">` : '<span style="color:#94a3b8;font-size:12px">无图</span>'}</div>
+    <div class="page-thumb">${thumb ? `<img loading="lazy" src="${thumb}" alt="">` : `<span style="color:#94a3b8;font-size:12px">${phText}</span>`}</div>
     <div class="page-info">
       <div class="page-no">第 ${p.pageNo} 页</div>
-      <div class="page-type">${esc(typeName(p.docType))}</div>
-      <div class="page-meta">${esc(meta || '未识别日期/设备')}</div>
+      <div class="page-type">${esc(typeLabel)}</div>
+      <div class="page-meta">${esc(metaLabel)}</div>
     </div>
   </div>`;
 }
@@ -168,7 +182,8 @@ function renderPages() {
     const station = p.station || '未识别站点';
     const family = familyOf(p.docType);
     const equip = p.equipmentId || '未识别设备';
-    const key = `${station}|${family}|${equip}`;
+    // 设备号没识别出来时按源 PDF 分开，避免多台梯的“未识别设备”被合并成一组
+    const key = `${station}|${family}|${p.equipmentId || 'file:' + (p.sourceFileId || '')}`;
     if (!groups.has(key)) groups.set(key, { station, family, equip, items: [] });
     groups.get(key).items.push(p);
   });
@@ -306,7 +321,21 @@ function renderDetail(d) {
   const fields = (d.fields || []).filter(f => f.raw);
   $('#dFields').innerHTML = `<h3>关键字段</h3><div class="kv">` +
     (fields.length ? fields.map(f => `<div class="k">${map[f.code] || f.code}</div><div>${esc(f.raw)}</div>`).join('')
-      : '<div class="k">—</div><div>未识别（手写字段可能无法识别，请以原图为准）</div>') + `</div>`;
+      : '<div class="k">—</div><div>未识别（手写字段可能无法识别，请以原图为准）</div>') + `</div>
+    <div class="seq-fix"><span>第 N 次</span>
+      <input id="seqFixInput" type="number" min="1" max="300" value="${d.seqNo || ''}" placeholder="人工填写">
+      <button class="btn tiny" id="seqFixSave">保存并入库</button>
+      <span class="tiny">保存后该数字切片会进入样本库，后续识别越用越准</span>
+    </div>`;
+  const seqBtn = $('#seqFixSave');
+  if (seqBtn) seqBtn.onclick = async () => {
+    const v = Number($('#seqFixInput').value);
+    if (!v || v < 1) return toast('请输入正确的次数', true);
+    try {
+      const r = await api(`/api/pages/${d.id}/seq`, { method: 'POST', body: JSON.stringify({ value: v }) });
+      toast(`已保存，样本入库 ${r.learned} 张`);
+    } catch (e) { toast('保存失败：' + e.message, true); }
+  };
 
   // checks
   const checks = d.checks || [];
@@ -329,12 +358,17 @@ function renderDetail(d) {
         let cands = [];
         try { cands = JSON.parse(m.candidates || '[]').filter(c => Number.isFinite(c.score)); } catch {}
         const crop = `/api/matches/${m.id}/crop`;
-        const personOpts = state.persons.map(p => `<option value="${p.id}" ${p.id === m.personId ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+        const sure = m.verdict === 'MATCH' || m.confirmed === true;
+        const pick = sure && m.personId ? m.personId : '';
+        const personOpts = state.persons.map(p => `<option value="${p.id}" ${p.id === pick ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+        const nameLine = sure
+          ? `<b>${esc(m.personName || '—')}</b> <span class="tiny">${Number.isFinite(m.score) ? (m.score * 100).toFixed(0) + '分' : '—'}</span>`
+          : '<b>未确认</b> <span class="tiny">字迹比对置信不足，请对照原图人工选择</span>';
         return `<div class="sig-body">
           <img class="sig-crop" src="${crop}" alt="">
           <div>
-            <div><b>${esc(m.personName || '—')}</b> <span class="tiny">${Number.isFinite(m.score) ? (m.score * 100).toFixed(0) + '分' : '—'}</span></div>
-            <div class="cands">候选：${cands.map(c => `${esc(c.personName)} ${(c.score * 100).toFixed(0)}`).join(' / ') || '无候选'}</div>
+            <div>${nameLine}</div>
+            <div class="cands">${sure ? '候选' : '最接近（仅供参考）'}：${cands.map(c => `${esc(c.personName)} ${(c.score * 100).toFixed(0)}`).join(' / ') || '无候选'}</div>
             <div class="sig-actions">
               <select data-match="${m.id}"><option value="">选择人员…</option>${personOpts}</select>
               <button class="btn tiny" data-confirm="${m.id}">确认此人</button>
@@ -441,11 +475,12 @@ async function doExport() {
   } catch (e) { toast('导出失败：' + e.message, true); }
 }
 
-async function reprocess() {
+async function reprocess(all = false) {
   if (!state.batch) return;
+  if (all && !confirm('将清空本批全部结果并按当前规则重新识别，继续？')) return;
   try {
-    await api(`/api/batches/${state.batch.id}/reprocess`, { method: 'POST' });
-    toast('已加入队列');
+    await api(`/api/batches/${state.batch.id}/reprocess${all ? '?all=true' : ''}`, { method: 'POST' });
+    toast(all ? '已重置全部页并加入队列' : '已加入队列');
     startPoll(state.batch.id);
   } catch (e) { toast('操作失败：' + e.message, true); }
 }
@@ -460,7 +495,8 @@ function bind() {
   $('#btnImport').onclick = doImport;
   $('#btnBack').onclick = () => { stopPoll(); showView('home'); loadBatches(); };
   $('#btnExport').onclick = doExport;
-  $('#btnReprocess').onclick = reprocess;
+  $('#btnReprocess').onclick = () => reprocess(false);
+  $('#btnReprocessAll').onclick = () => reprocess(true);
   $('#btnCloseDrawer').onclick = closeDrawer;
   $('#drawerBackdrop').onclick = closeDrawer;
   $('#filterType').onchange = e => { state.filter.type = e.target.value; renderPages(); };

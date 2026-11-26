@@ -169,6 +169,41 @@ public sealed class Db
     public void SetBatchStatus(string batchId, string status, string? error = null)
         => Exec("UPDATE Batch SET Status=$s,Error=$e WHERE Id=$i", ("$s", status), ("$e", error), ("$i", batchId));
 
+    public void ResetPages(string batchId)
+        => Exec("UPDATE Page SET Status='pending', Error=NULL WHERE BatchId=$b", ("$b", batchId));
+
+    public void SetDocumentIdentity(string docId, string station, string equipment)
+    {
+        Exec("UPDATE Document SET Station=$s,EquipmentId=$e WHERE Id=$d", ("$s", station), ("$e", equipment), ("$d", docId));
+        void Sync(string code, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            bool exists = Query("SELECT 1 FROM FieldValue WHERE DocumentId=$d AND Code=$c",
+                _ => 1, ("$d", docId), ("$c", code)).Count > 0;
+            if (exists)
+                Exec("UPDATE FieldValue SET Raw=$v,Norm=$v WHERE DocumentId=$d AND Code=$c",
+                    ("$v", value), ("$d", docId), ("$c", code));
+            else
+                AddField(docId, code, value, value, 0.75, new Rect(0, 0, 0, 0));
+        }
+        Sync("station", station);
+        Sync("equipment", equipment);
+    }
+
+    public void SetDocumentSeq(string docId, int seq)
+    {
+        Exec("UPDATE Document SET SeqNo=$q WHERE Id=$d", ("$q", seq), ("$d", docId));
+        bool exists = Query("SELECT 1 FROM FieldValue WHERE DocumentId=$d AND Code='seq'",
+            _ => 1, ("$d", docId)).Count > 0;
+        var v = seq.ToString();
+        if (exists) Exec("UPDATE FieldValue SET Raw=$v,Norm=$v WHERE DocumentId=$d AND Code='seq'", ("$v", v), ("$d", docId));
+        else AddField(docId, "seq", v, v, 0.7, new Rect(0, 0, 0, 0));
+    }
+
+    public void UpdateBatchInfo(string batchId, string name, string station, string equipment)
+        => Exec("UPDATE Batch SET Name=CASE WHEN $n='' THEN Name ELSE $n END, Station=$s, Equipment=$e WHERE Id=$i",
+            ("$n", name ?? ""), ("$s", station ?? ""), ("$e", equipment ?? ""), ("$i", batchId));
+
     public void RefreshProblemCount(string batchId)
         => Exec("UPDATE Batch SET ProblemCount=(SELECT COUNT(*) FROM Finding WHERE BatchId=$b AND Severity='Serious') WHERE Id=$b", ("$b", batchId));
 
@@ -299,7 +334,7 @@ public sealed class Db
     public List<PageRow> GetPages(string batchId, string? type, bool onlyProblem)
     {
         var sql = """
-            SELECT p.Id,p.PageNo,p.Status,p.Error,p.ImagePath,p.ThumbPath,p.Quality,
+            SELECT p.Id,p.PageNo,p.Status,p.Error,p.ImagePath,p.ThumbPath,p.Quality,p.SourceFileId,
                    d.DocType,d.SeqNo,d.DocDate,d.EquipmentId,d.Station,d.TypeConfidence,
                    (SELECT COUNT(*) FROM Finding f WHERE f.PageId=p.Id AND f.Status='open') AS OpenFindings,
                    (SELECT COUNT(*) FROM Finding f WHERE f.PageId=p.Id AND f.Severity='Serious' AND f.Status='open') AS SeriousFindings
@@ -312,7 +347,7 @@ public sealed class Db
         sql += " ORDER BY p.PageNo";
         return Query(sql, r => new PageRow(Str(r,"Id"), Int(r,"PageNo"), Str(r,"Status"),
             Str(r,"DocType"), Str(r,"DocDate"), Str(r,"EquipmentId"), Str(r,"Station"), Dbl(r,"TypeConfidence"),
-            Str(r,"ThumbPath"), Int(r,"OpenFindings"), Int(r,"SeriousFindings"), Str(r,"Error")), ps.ToArray());
+            Str(r,"ThumbPath"), Int(r,"OpenFindings"), Int(r,"SeriousFindings"), Str(r,"Error"), Str(r,"SourceFileId")), ps.ToArray());
     }
 
     public PageDetail? GetPageDetail(string pageId)
@@ -395,7 +430,7 @@ public sealed record SourceRow(string Id, string FileName, string Path, int Page
 public sealed record WorkPageRow(string Id, string SourceFileId, int PageNo, string Status, string ImagePath, string SourcePath, string EquipmentHint);
 public sealed record ExportRow(string DocType, string DocDate, string EquipmentId, string Station, int PageNo, string PageId, string SourcePath);
 public sealed record PageRow(string Id, int PageNo, string Status, string DocType, string DocDate, string EquipmentId, string Station,
-    double TypeConfidence, string ThumbPath, int OpenFindings, int SeriousFindings, string Error);
+    double TypeConfidence, string ThumbPath, int OpenFindings, int SeriousFindings, string Error, string SourceFileId);
 public sealed record FieldRow(string Code, string Raw, string Norm, double Confidence, double X, double Y, double W, double H);
 public sealed record CheckRow(int ItemNo, string Result, double Ink);
 public sealed record FindingRow(long Id, string RuleCode, string Severity, string Message, double X, double Y, double W, double H, string Status, string CropPath)
