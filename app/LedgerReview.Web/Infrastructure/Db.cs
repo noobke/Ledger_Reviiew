@@ -200,6 +200,16 @@ public sealed class Db
         else AddField(docId, "seq", v, v, 0.7, new Rect(0, 0, 0, 0));
     }
 
+    public void SetDocumentDate(string docId, DateTime date)
+    {
+        Exec("UPDATE Document SET DocDate=$q WHERE Id=$d", ("$q", date.ToString("yyyy-MM-dd")), ("$d", docId));
+        bool exists = Query("SELECT 1 FROM FieldValue WHERE DocumentId=$d AND Code='date'",
+            _ => 1, ("$d", docId)).Count > 0;
+        var v = date.ToString("yyyy-MM-dd");
+        if (exists) Exec("UPDATE FieldValue SET Raw=$v,Norm=$v WHERE DocumentId=$d AND Code='date'", ("$v", v), ("$d", docId));
+        else AddField(docId, "date", v, v, 0.7, new Rect(0, 0, 0, 0));
+    }
+
     public void UpdateBatchInfo(string batchId, string name, string station, string equipment)
         => Exec("UPDATE Batch SET Name=CASE WHEN $n='' THEN Name ELSE $n END, Station=$s, Equipment=$e WHERE Id=$i",
             ("$n", name ?? ""), ("$s", station ?? ""), ("$e", equipment ?? ""), ("$i", batchId));

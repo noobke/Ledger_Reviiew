@@ -152,17 +152,58 @@ public static class Endpoints
             try
             {
                 var cropDir = ws.CropsDir(d.BatchId);
-                var file = Directory.Exists(cropDir)
-                    ? Directory.GetFiles(cropDir, $"*_p{d.PageNo:D3}_*_seqgap.png").FirstOrDefault()
-                    : null;
+                string? file = null;
+                if (Directory.Exists(cropDir))
+                {
+                    // 优先用 seqprobe 生成的最新精确定位切片，其次才用审查时保存的切片。
+                    var probe = Path.Combine(cropDir, $"probe_{d.Id}.png");
+                    file = File.Exists(probe)
+                        ? probe
+                        : Directory.GetFiles(cropDir, $"*_p{d.PageNo:D3}_*_seqgap.png").FirstOrDefault();
+                }
                 if (file != null)
                 {
                     using var crop = SKBitmap.Decode(file);
-                    if (crop != null) learned = digits.LearnFrom(crop, body.Value, ws);
+                    if (crop != null) learned = digits.LearnFrom(crop, body.Value, ws, d.BatchId);
                 }
             }
             catch { }
             return Results.Ok(new { ok = true, learned });
+        }).DisableAntiforgery();
+
+        // 自检：返回“第 N 次”数字区的定位结果并保存切片，便于逐页核对定位是否准确。
+        app.MapPost("/api/pages/{id}/seqprobe", (string id, Db db, Workspace ws) =>
+        {
+            var d = db.GetPageDetail(id);
+            if (d == null) return Results.NotFound();
+            var path = db.GetPageImage(id, false);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return Results.NotFound();
+            using var bmp = SKBitmap.Decode(path);
+            if (bmp == null) return Results.NotFound();
+            var r = SeqLocator.Underline(bmp);
+            if (r != null)
+            {
+                var dir = ws.CropsDir(d.BatchId);
+                Directory.CreateDirectory(dir);
+                using var crop = ImageOps.Crop(bmp, r, 0);
+                ImageOps.SavePng(crop, Path.Combine(dir, $"probe_{id}.png"));
+            }
+            return Results.Ok(new { rect = r, page = d.PageNo });
+        }).DisableAntiforgery();
+
+        // 调试：查看数字区切分结果（字符数/尺寸），用于判断切分是否把两位数字粘在一起。
+        app.MapPost("/api/pages/{id}/seqdebug", (string id, Db db, Workspace ws) =>
+        {
+            var d = db.GetPageDetail(id);
+            if (d == null) return Results.NotFound();
+            var dir = ws.CropsDir(d.BatchId);
+            if (!Directory.Exists(dir)) return Results.NotFound();
+            var probe = Path.Combine(dir, $"probe_{d.Id}.png");
+            var file = File.Exists(probe) ? probe : Directory.GetFiles(dir, $"*_p{d.PageNo:D3}_*_seqgap.png").FirstOrDefault();
+            if (file == null) return Results.NotFound();
+            using var crop = SKBitmap.Decode(file);
+            if (crop == null) return Results.NotFound();
+            return Results.Ok(new { file = Path.GetFileName(file), glyphs = DigitRecognizer.DescribeGlyphs(crop) });
         }).DisableAntiforgery();
 
         app.MapPost("/api/matches/{id}/confirm", (long id, MatchConfirm body, Db db) =>

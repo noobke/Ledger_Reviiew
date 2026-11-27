@@ -55,6 +55,7 @@ public sealed class Processor : BackgroundService
     private async Task ProcessBatch(string batchId, CancellationToken ct)
     {
         _db.SetBatchStatus(batchId, "processing");
+        _digits.EnsureBatch(_ws, batchId);
         var batch = _db.GetBatch(batchId);
         var all = _db.GetPages(batchId, null, false);
         int total = all.Count;
@@ -74,6 +75,7 @@ public sealed class Processor : BackgroundService
         // 先按“一册=一台梯”归并站点/设备号，再逐页出问题，避免手写 OCR 噪声把同一册拆成很多组。
         ConsolidateIdentity(batchId, facts, batch);
         ConsolidateSeq(batchId, facts);
+        await FixDatesBySeq(batchId, facts, ct);
         foreach (var (pageId, ctx) in facts)
         {
             var findings = _audit.AuditPage(ctx.Fact, ctx.Tpl, ctx.Quality, _ocr.Available);
@@ -122,10 +124,10 @@ public sealed class Processor : BackgroundService
             var fact = new PageFact { Type = cls.Type, Confidence = cls.Confidence, OcrText = ocr.FullText };
             ExtractFields(fact, ocr, batchStation);
             var pageKey = $"{batchId}_p{p.PageNo:D3}_{tag}";
-            await TryOcrFields(fact, bmp, ocr, cropDir, pageKey, ct);
-            // 设备编号优先用文件名/批次里人工填写的值；手写编号 OCR 常读错，不能让它覆盖人工输入。
+            await TryOcrFields(fact, bmp, ocr, cropDir, pageKey, batchId, ct);
+            // 设备编号优先用手写识别结果；批次里人工填写的只作为兜底，避免混合批次被统一成一个编号
             var eqHint = !string.IsNullOrWhiteSpace(p.EquipmentHint) ? p.EquipmentHint : batchEquipment;
-            if (!string.IsNullOrWhiteSpace(eqHint)) fact.EquipmentId = eqHint;
+            if (string.IsNullOrWhiteSpace(fact.EquipmentId) && !string.IsNullOrWhiteSpace(eqHint)) fact.EquipmentId = eqHint;
             if (tpl != null && tpl.ItemCount > 0) fact.Checks.AddRange(_checks.Read(bmp, tpl, ocr));
             ReadSignatures(bmp, tpl, fact, cropDir, pageKey, ocr);
 
@@ -200,6 +202,7 @@ public sealed class Processor : BackgroundService
     {
         var docs = _db.GetDocs(batchId)
             .Where(d => d.DocType.StartsWith("Chuiti") || d.DocType.StartsWith("Futi")).ToList();
+        // 同一台梯的台账可能被拆成多个 PDF 扫描，因此按设备号归并；换册/跳号交给一致组自动分段。
         foreach (var g in docs.GroupBy(d => string.IsNullOrWhiteSpace(d.EquipmentId)
                      ? "file:" + d.SourceFileId : StationCatalog.EquipmentKey(d.EquipmentId)))
         {
@@ -212,23 +215,175 @@ public sealed class Processor : BackgroundService
                 .Where(x => x.Ctx != null && x.Date != default)
                 .OrderBy(x => x.Date).ToList();
             if (list.Count < 4) continue;
-            var known = list.Select((x, i) => (Index: i, Seq: x.Ctx!.Fact.SeqNo))
-                .Where(k => k.Seq.HasValue && k.Seq > 0).ToList();
-            if (known.Count < 3) continue;
-            var offsets = known.Select(k => k.Seq!.Value - k.Index).OrderBy(v => v).ToList();
-            int median = offsets[offsets.Count / 2];
-            int agree = known.Count(k => Math.Abs(k.Seq!.Value - k.Index - median) <= 1);
-            if (agree < known.Count * 0.8) continue;
+            var known = list.Select((x, i) => (Pos: i, Seq: x.Ctx!.Fact.SeqNo))
+                .Where(k => k.Seq is > 0).Select(k => (k.Pos, Seq: k.Seq!.Value)).ToList();
+            if (known.Count < 2) continue;
+
+            // 同一册可能装订了多本保养簿（次数会从 1 重新开始），也可能中间缺页导致次数跳号。
+            // 因此不再用“全册统一偏移”，而是把“相邻且次数差=页序差”的已知页连成一致组，
+            // 每组各自拟合偏移，再只对本组覆盖的页做补齐/纠正。组内证据不足就放弃，绝不硬猜。
+            int n = known.Count;
+            var parent = Enumerable.Range(0, n).ToArray();
+            int Find(int x) => parent[x] == x ? x : parent[x] = Find(parent[x]);
+            void Union(int a, int b) { a = Find(a); b = Find(b); if (a != b) parent[b] = a; }
+
+            for (int i = 0; i < n; i++)
+                for (int j = i + 1; j < n && known[j].Pos - known[i].Pos <= 12; j++)
+                    if (known[j].Seq - known[i].Seq == known[j].Pos - known[i].Pos)
+                        Union(i, j);
+
+            var comps = new List<(int[] Idx, int Offset, int MinPos, int MaxPos)>();
+            foreach (var grp in Enumerable.Range(0, n).GroupBy(Find))
+            {
+                var idx = grp.ToArray();
+                var offs = idx.Select(i => known[i].Seq - known[i].Pos).OrderBy(v => v).ToList();
+                int off = offs[offs.Count / 2];
+                int agree = idx.Count(i => Math.Abs(known[i].Seq - known[i].Pos - off) <= 1);
+                if (idx.Length < 2 || agree < idx.Length * 0.8) continue;
+                comps.Add((idx, off, idx.Min(i => known[i].Pos), idx.Max(i => known[i].Pos)));
+            }
+            if (comps.Count == 0) continue;
+
+            // 已知次数里如果凑不出一个占多数的“逐次 +1”序列（例如同一批次混进了多台梯的散页），
+            // 一致性模型就不适用——此时只保留逐页识别结果，绝不按偏移量去改。
+            if (comps.Max(c => c.Idx.Length) < Math.Max(3, known.Count * 0.35)) continue;
+
+            // 偏移量相同的组之间不存在换册或跳号，合并覆盖范围后，组间空档也能安全补齐；
+            // 偏移不同（例如换册从 1 重计、或中间缺页）则保持各自独立，绝不跨过去外推。
+            var spans = comps.GroupBy(c => c.Offset)
+                .Select(g => (Offset: g.Key, Nodes: g.Sum(c => c.Idx.Length),
+                    Min: g.Min(c => c.MinPos), Max: g.Max(c => c.MaxPos)))
+                .OrderByDescending(s => s.Nodes).ToList();
+
+            // 一、先处理“两位数漏读前一位”（12 读成 2、25 读成 5）：只改这种高度特异的形态，
+            //    依据是相邻页推出的次数，避免把本来读对的值改坏。
+            var suffixFixed = new HashSet<int>();
             for (int i = 0; i < list.Count; i++)
             {
-                int pred = i + median;
-                if (pred < 1 || pred > 300) continue;
                 var cur = list[i].Ctx!.Fact.SeqNo;
-                if (cur.HasValue && cur > 0 && Math.Abs(cur.Value - pred) <= 1) continue;
-                _db.SetDocumentSeq(list[i].Doc.Id, pred);
-                list[i].Ctx!.Fact.SeqNo = pred;
+                if (cur is not > 0) continue;
+                int? fixTo = null;
+                int hits = 0;
+                for (int d = 1; d <= 2; d++)
+                {
+                    foreach (int j in new[] { i - d, i + d })
+                    {
+                        if (j < 0 || j >= list.Count) continue;
+                        var nb = list[j].Ctx!.Fact.SeqNo;
+                        if (nb is not > 0) continue;
+                        int expected = nb.Value + (i - j);
+                        if (expected == cur.Value || expected < 10 || expected > 300) continue;
+                        if (expected % 10 == cur.Value && cur.Value < 10) { fixTo = expected; hits++; }
+                    }
+                }
+                if (fixTo is int f2 && hits == 1)
+                {
+                    _db.SetDocumentSeq(list[i].Doc.Id, f2);
+                    list[i].Ctx!.Fact.SeqNo = f2;
+                    suffixFixed.Add(i);
+                }
+            }
+
+            // 二、再用一致组补齐/纠正。跨度内可纠正（≥3 页互证）；跨度外只补空值、
+            //    或纠正紧邻且明显离谱的读数；已按邻页后缀规则纠正过的页不再动。
+            for (int pos = 0; pos < list.Count; pos++)
+            {
+                var span = spans.FirstOrDefault(s => pos >= s.Min && pos <= s.Max);
+                bool inside = span.Nodes > 0;
+                if (!inside)
+                {
+                    span = spans.Where(s => Math.Min(Math.Abs(pos - s.Min), Math.Abs(pos - s.Max)) <= 2)
+                        .OrderByDescending(s => s.Nodes).FirstOrDefault();
+                    if (span.Nodes == 0) continue;
+                }
+                int pred = pos + span.Offset;
+                if (pred < 1 || pred > 300) continue;
+                var cur = list[pos].Ctx!.Fact.SeqNo;
+                if (cur == pred) continue;
+                bool unknown = cur is null or <= 0;
+                if (!unknown)
+                {
+                    if (!inside)
+                    {
+                        // 跨度外只纠正明显离谱的读数（差 > 20），其余一律保留，避免把读对的值改坏
+                        if (suffixFixed.Contains(pos)) continue;
+                        if (Math.Abs(cur.Value - pred) <= 20) continue;
+                    }
+                    else if (span.Nodes < 3) continue;   // 覆盖已读出的值，需要 3 页以上互相印证
+                }
+                _db.SetDocumentSeq(list[pos].Doc.Id, pred);
+                list[pos].Ctx!.Fact.SeqNo = pred;
             }
         }
+    }
+
+    /// <summary>
+    /// 日期合理性校正：次数已经能排出先后顺序，若某页日期落在前后两页区间之外，
+    /// 说明手写日期被读错（例如 10.27 读成 01.27）。对该页日期区多尺度重读，
+    /// 取落在前后区间内的读数；重读仍对不上就保留原值，不硬改。
+    /// </summary>
+    private async Task FixDatesBySeq(string batchId, Dictionary<string, PageContext> facts, CancellationToken ct)
+    {
+        var docs = _db.GetDocs(batchId)
+            .Where(d => d.DocType.StartsWith("Chuiti") || d.DocType.StartsWith("Futi")).ToList();
+        var cropDir = _ws.CropsDir(batchId);
+        foreach (var g in docs.GroupBy(d => string.IsNullOrWhiteSpace(d.EquipmentId)
+                     ? "file:" + d.SourceFileId : StationCatalog.EquipmentKey(d.EquipmentId)))
+        {
+            var list = g.Select(d =>
+                {
+                    facts.TryGetValue(d.PageId, out var ctx);
+                    DateTime.TryParse(ctx?.Fact.DocDate, out var dt);
+                    return (Doc: d, Ctx: ctx, Date: dt);
+                })
+                .Where(x => x.Ctx?.Fact.SeqNo is > 0 && x.Date != default)
+                .OrderBy(x => x.Ctx!.Fact.SeqNo).ToList();
+            if (list.Count < 5) continue;
+
+            for (int i = 1; i < list.Count - 1; i++)
+            {
+                var prev = list[i - 1].Date;
+                var next = list[i + 1].Date;
+                if (list[i].Date > prev && list[i].Date < next) continue;
+                var fixedDate = await ReReadDate(list[i].Doc.PageId, prev, next, cropDir, ct);
+                if (fixedDate == null) continue;
+                _db.SetDocumentDate(list[i].Doc.Id, fixedDate.Value);
+                list[i].Ctx!.Fact.DocDate = fixedDate.Value.ToString("yyyy-MM-dd");
+                _log.LogInformation("日期校正 {p}: {old} -> {new}", list[i].Doc.PageId, list[i].Date.ToString("yyyy-MM-dd"), fixedDate.Value.ToString("yyyy-MM-dd"));
+            }
+        }
+    }
+
+    private async Task<DateTime?> ReReadDate(string pageId, DateTime after, DateTime before, string cropDir, CancellationToken ct)
+    {
+        var path = _db.GetPageImage(pageId, false);
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+        using var bmp = SKBitmap.Decode(path);
+        if (bmp == null) return null;
+        var lo = after.AddDays(1);
+        var hi = before.AddDays(-1);
+        if (hi <= lo) return null;
+
+        var votes = new Dictionary<DateTime, int>();
+        foreach (var rect in new[]
+        {
+            new Rect(0.58, 0.84, 0.42, 0.12),
+            new Rect(0.62, 0.66, 0.37, 0.26),
+            new Rect(0.02, 0.66, 0.96, 0.30)
+        })
+        {
+            foreach (var (scale, enhance) in new[] { (3, false), (3, true), (4, false), (4, true) })
+            {
+                var txt = Regex.Replace(await OcrRegion(bmp, rect, cropDir, "datefix", ct, scale, enhance), @"\s+", "");
+                var d = ParseDate(txt);
+                if (d == null) continue;
+                var dt = DateTime.Parse(d);
+                if (dt <= lo || dt >= hi) continue;
+                votes[dt] = votes.GetValueOrDefault(dt) + 1;
+            }
+        }
+        if (votes.Count == 0) return null;
+        return votes.OrderByDescending(kv => kv.Value).First().Key;
     }
 
     private static string? PickStation(IEnumerable<string> values)
@@ -281,50 +436,71 @@ public sealed class Processor : BackgroundService
         }
     }
 
-    private async Task TryOcrFields(PageFact fact, SKBitmap bmp, OcrPage ocr, string dir, string prefix, CancellationToken ct)
+    private async Task TryOcrFields(PageFact fact, SKBitmap bmp, OcrPage ocr, string dir, string prefix, string batchId, CancellationToken ct)
     {
         if (!_ocr.Available) return;
 
-        if (fact.SeqNo == null)
+        int? seqOcr = fact.SeqNo;
+
+        // 数字专用识别（主路径）：先用底线定位截出“写在横线上方”的手写数字，再做字符切分+模板匹配。
+        DigitRecognizer.DigitResult? dr = null;
+        int? seqTight = null;
+        Rect? gapRect = null;
+        if (fact.Type.ToString().StartsWith("Chuiti") || fact.Type.ToString().StartsWith("Futi"))
         {
-            // “第 ___ 次”位置随版式上下浮动，先试标题行左段，再试整行；数字空格常被 OCR 读丢，最后一档只认数字。
+            // 手写数字写在“第 ____ 次”的下划线上方，先找这条线，再只截线上方一条窄带，
+            // 避免把表格线和“维保单位”等印刷字一起卷进数字切片（这是此前手写数字识别失准的主因）。
+            var gap = SeqLocator.Underline(bmp) ?? SeqGapRect(ocr) ?? new Rect(0.10, 0.095, 0.13, 0.105);
+            gapRect = gap;
+            using (var crop = ImageOps.Crop(bmp, gap, 0))
+            {
+                try { ImageOps.SavePng(crop, Path.Combine(dir, prefix + "_seqgap.png")); } catch { }
+                dr = _digits.RecognizeBest(crop, 0, 0, batchId);
+            }
+        }
+
+        // 数字区放大后再单独 OCR 一次：切片里只剩手写数字，比整页 OCR 稳得多，是第二路独立证据。
+        if (gapRect != null)
+            seqTight = ParseBareNumber(await OcrRegion(bmp, gapRect, dir, prefix + "_seqtight", ct, 6));
+
+        int? pick;
+        bool ocrAgree = seqTight != null && seqTight == seqOcr;
+        if (dr != null && dr.Confidence >= 0.95) pick = dr.Value;   // 与人工确认过的切片几乎完全一致
+        else if (ocrAgree) pick = seqTight;                       // 两路 OCR 一致
+        else if (dr != null && dr.Confidence >= 0.85 && (seqTight == null || dr.Value == seqTight)) pick = dr.Value;
+        else if (seqTight != null) pick = seqTight;          // 数字区 OCR 优先于整页 OCR
+        else if (seqOcr != null) pick = seqOcr;
+        else if (dr != null && dr.Confidence >= 0.55) pick = dr.Value;   // 模板匹配兜底
+        else pick = null;
+
+        // 仍然没读出来，才退回整页 OCR 多种窗口（耗时最高）
+        if (pick == null)
+        {
             var seqRects = new[]
             {
                 new Rect(0.10, 0.095, 0.13, 0.105),  // 只截“第 __ 次”
                 new Rect(0.12, 0.095, 0.09, 0.105),  // 只截手写数字
-                new Rect(0.02, 0.10, 0.30, 0.09),
-                new Rect(0.02, 0.13, 0.24, 0.07),
-                new Rect(0.02, 0.04, 0.58, 0.12)
+                new Rect(0.02, 0.10, 0.30, 0.09)
             };
             foreach (var rect in seqRects)
             {
-                // 同一区域读四档（6×、4×、4×二值化、2×），至少两档给出同一个数才采用。
+                // 同一区域读两档，至少两档给出同一个数才采用。
                 var readings = new List<int>();
-                foreach (var (scale, enhance) in new[] { (6, false), (4, false), (4, true), (2, false) })
+                foreach (var (scale, enhance) in new[] { (6, false), (4, false) })
                 {
                     var text = await OcrRegion(bmp, rect, dir, prefix + "_seq", ct, scale, enhance);
                     var v = ParseSeq(text) ?? ParseBareNumber(text);
                     if (v != null) readings.Add(v.Value);
                 }
-                var pick = readings.GroupBy(v => v).Where(g => g.Count() >= 2)
+                var vote = readings.GroupBy(v => v).Where(g => g.Count() >= 2)
                     .OrderByDescending(g => g.Count()).FirstOrDefault();
-                if (pick != null) { fact.SeqNo = pick.Key; break; }
+                if (vote != null) { pick = vote.Key; break; }
             }
         }
-
-        // 数字专用识别：用“第/次”词框夹出的数字区，独立于通用 OCR，读不出时兜底
-        if (fact.Type.ToString().StartsWith("Chuiti") || fact.Type.ToString().StartsWith("Futi"))
-        {
-            var gap = SeqGapRect(ocr) ?? new Rect(0.10, 0.095, 0.13, 0.105);
-            using (var crop = ImageOps.Crop(bmp, gap, 0))
-            {
-                try { ImageOps.SavePng(crop, Path.Combine(dir, prefix + "_seqgap.png")); } catch { }
-                var dr = _digits.RecognizeBest(crop);
-                _log.LogInformation("数字区 {p}: ocr={q} guess={v} conf={c:0.00} {d}",
-                    prefix, fact.SeqNo, dr?.Value, dr?.Confidence ?? 0, dr?.Detail);
-                if (fact.SeqNo == null && dr != null && dr.Confidence >= 0.60) fact.SeqNo = dr.Value;
-            }
-        }
+        fact.SeqNo = pick;
+        if (seqOcr != null || seqTight != null || dr != null)
+            _log.LogInformation("数字区 {p}: 页ocr={q} 区ocr={t} 模板={v}({c:0.00}) -> {r} {d}",
+                prefix, seqOcr, seqTight, dr?.Value, dr?.Confidence ?? 0, fact.SeqNo, dr?.Detail);
 
         if (string.IsNullOrWhiteSpace(fact.EquipmentId))
         {
@@ -344,6 +520,7 @@ public sealed class Processor : BackgroundService
         if (string.IsNullOrWhiteSpace(fact.DocDate))
         {
             var f1Texts = new List<string>();
+            var votes = new Dictionary<string, int>();
             foreach (var rect in new[]
             {
                 new Rect(0.58, 0.84, 0.42, 0.12),   // 保养单右下“姓名/日期”栏
@@ -351,14 +528,21 @@ public sealed class Processor : BackgroundService
                 new Rect(0.02, 0.66, 0.96, 0.30)
             })
             {
-                foreach (var (scale, enhance) in new[] { (3, false), (3, true), (2, false) })
+                foreach (var (scale, enhance) in new[] { (3, false), (3, true), (4, false), (4, true) })
                 {
                     var txt = Regex.Replace(await OcrRegion(bmp, rect, dir, prefix + "_date", ct, scale, enhance), @"\s+", "");
                     if (rect.Y < 0.70) f1Texts.Add(txt);
                     var d = ParseDate(txt);
-                    if (d != null) { fact.DocDate = d; break; }
+                    if (d != null) votes[d] = votes.GetValueOrDefault(d) + 1;
                 }
-                if (!string.IsNullOrWhiteSpace(fact.DocDate)) break;
+            }
+            // 多个窗口/尺度各自读日期，按票数取多数；手写日期在不同预处理下常出现 01.27 / 10.27 这类分歧
+            if (votes.Count > 0)
+            {
+                var best = votes.OrderByDescending(kv => kv.Value).First();
+                fact.DocDate = best.Key;
+                if (votes.Count > 1)
+                    _log.LogInformation("日期多解 {p}: {v}", prefix, string.Join("; ", votes.Select(kv => $"{kv.Key}x{kv.Value}")));
             }
 
             // F.1 两行日期常一行年份错、一行月份错（如 7076年9月1日 / 2026年0月1日），
